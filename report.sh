@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-###############################################################################
-#  report.sh — Daily System Report Generator
-#
-#  Generates a comprehensive daily report, compresses it, and optionally
-#  emails it as an attachment.
-###############################################################################
+# report.sh — Daily system report generator with optional email
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,8 +12,6 @@ TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 REPORT_FILE="${SCRIPT_DIR}/${REPORT_DIR}/system_${DATE}.txt"
 REPORT_ZIP="${SCRIPT_DIR}/${REPORT_DIR}/system_${DATE}.zip"
 
-# ── Report Header ─────────────────────────────────────────────────────────────
-
 {
 echo "==============================================================================="
 echo "              DAILY SYSTEM REPORT — $(hostname)"
@@ -26,14 +19,14 @@ echo "              Generated: ${TIMESTAMP}"
 echo "==============================================================================="
 echo ""
 
-# ── 1. System Uptime ──────────────────────────────────────────────────────────
+# 1. Uptime
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 1. SYSTEM UPTIME"
 echo "──────────────────────────────────────────────────────────────────────────────"
 uptime 2>/dev/null || echo "  Unable to retrieve uptime."
 echo ""
 
-# ── 2. CPU Statistics ─────────────────────────────────────────────────────────
+# 2. CPU
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 2. CPU STATISTICS"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -50,7 +43,7 @@ else
 fi
 echo ""
 
-# ── 3. Memory Statistics ──────────────────────────────────────────────────────
+# 3. Memory
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 3. MEMORY STATISTICS"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -62,14 +55,14 @@ else
 fi
 echo ""
 
-# ── 4. Disk Statistics ────────────────────────────────────────────────────────
+# 4. Disk
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 4. DISK STATISTICS"
 echo "──────────────────────────────────────────────────────────────────────────────"
 df -h 2>/dev/null
 echo ""
 
-# ── 5. Top 5 Processes by CPU ─────────────────────────────────────────────────
+# 5. Top processes
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 5. TOP 5 PROCESSES (by CPU usage)"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -77,7 +70,7 @@ ps aux --sort=-%cpu 2>/dev/null | head -6 || \
 ps aux -r 2>/dev/null | head -6 || echo "  Unable to list processes."
 echo ""
 
-# ── 6. Load Average ───────────────────────────────────────────────────────────
+# 6. Load average
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 6. LOAD AVERAGE"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -88,7 +81,7 @@ else
 fi
 echo ""
 
-# ── 7. Network Statistics ─────────────────────────────────────────────────────
+# 7. Network
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 7. NETWORK STATISTICS"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -103,7 +96,7 @@ elif command -v netstat &>/dev/null; then
 fi
 echo ""
 
-# ── 8. Error Summary ──────────────────────────────────────────────────────────
+# 8. Errors
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 8. ERROR SUMMARY (System Logs)"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -121,7 +114,7 @@ else
 fi
 echo ""
 
-# ── 9. TCP Statistics ─────────────────────────────────────────────────────────
+# 9. TCP stats
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 9. TCP STATISTICS"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -133,7 +126,7 @@ elif command -v netstat &>/dev/null; then
 fi
 echo ""
 
-# ── 10. Alert Summary (from logs) ─────────────────────────────────────────────
+# 10. Alert summary
 echo "──────────────────────────────────────────────────────────────────────────────"
 echo " 10. ALERT SUMMARY (Today)"
 echo "──────────────────────────────────────────────────────────────────────────────"
@@ -153,8 +146,7 @@ echo "==========================================================================
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Report generated: ${REPORT_FILE}"
 
-# ── Compress Report ───────────────────────────────────────────────────────────
-
+# Compress report
 if command -v zip &>/dev/null; then
     zip -j "$REPORT_ZIP" "$REPORT_FILE" >/dev/null 2>&1
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Report compressed: ${REPORT_ZIP}"
@@ -166,8 +158,7 @@ else
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: Neither zip nor gzip available — skipping compression."
 fi
 
-# ── Email Report ──────────────────────────────────────────────────────────────
-
+# Email report if enabled
 if [[ "${EMAIL_ENABLED}" == "true" ]]; then
     SUBJECT="${EMAIL_SUBJECT_PREFIX} Daily Report - $(hostname) - ${DATE}"
     if command -v mail &>/dev/null; then

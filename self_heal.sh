@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-###############################################################################
-#  self_heal.sh — Self-Healing Service Monitor
-#
-#  Checks critical services defined in config.conf. If a service is down,
-#  attempts to restart it (up to MAX_RESTART_RETRIES times).
-#  Logs all actions to self_heal.log and sends alerts on failure.
-###############################################################################
+# self_heal.sh — Check critical services and restart if down (up to MAX_RESTART_RETRIES)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +14,7 @@ log_msg() {
     echo "[${TIMESTAMP}] $1" | tee -a "$LOG_FILE"
 }
 
-# ── Check if systemctl is available ───────────────────────────────────────────
+# Require systemd
 if ! command -v systemctl &>/dev/null; then
     log_msg "ERROR: systemctl not available. Self-healing requires systemd."
     exit 1
@@ -32,20 +26,17 @@ log_msg "═══════════════════════�
 log_msg "Checking services: ${CRITICAL_SERVICES}"
 log_msg ""
 
-# ── Iterate over critical services ────────────────────────────────────────────
 overall_failures=0
 
 for service in $CRITICAL_SERVICES; do
     log_msg "──────────────────────────────────────────────────────────────"
     log_msg "Checking service: ${service}"
 
-    # Check if the service unit exists
     if ! systemctl list-unit-files "${service}.service" &>/dev/null; then
         log_msg "  SKIP: Service '${service}' not found on this system."
         continue
     fi
 
-    # Check if active
     if systemctl is-active --quiet "${service}" 2>/dev/null; then
         log_msg "  STATUS: ✓ ${service} is running."
         continue
@@ -59,7 +50,7 @@ for service in $CRITICAL_SERVICES; do
         log_msg "  RESTART ATTEMPT: ${attempt}/${MAX_RESTART_RETRIES}"
 
         if sudo systemctl restart "${service}" 2>/dev/null; then
-            sleep 2  # Give service time to start
+            sleep 2
 
             if systemctl is-active --quiet "${service}" 2>/dev/null; then
                 log_msg "  RESULT: ✓ ${service} restarted successfully on attempt ${attempt}."
@@ -77,7 +68,6 @@ for service in $CRITICAL_SERVICES; do
         log_msg "  ESCALATION: ✗✗ ${service} FAILED after ${MAX_RESTART_RETRIES} attempts!"
         ((overall_failures++))
 
-        # Send alert
         if [[ "${EMAIL_ENABLED}" == "true" ]] && command -v mail &>/dev/null; then
             SUBJECT="${EMAIL_SUBJECT_PREFIX} ESCALATION: ${service} restart failed on $(hostname)"
             echo "Service '${service}' on $(hostname) failed to restart after ${MAX_RESTART_RETRIES} attempts at ${TIMESTAMP}." | \

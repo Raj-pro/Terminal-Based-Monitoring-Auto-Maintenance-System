@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-###############################################################################
-#  security_update.sh — Security-Only Patch Updates
-#
-#  Installs ONLY security patches (not full upgrades).
-#  Detects distro and uses the appropriate security update method.
-#  Logs results to security_update.log and alerts on failure.
-###############################################################################
+# security_update.sh — Install security-only patches, log results, alert on failure
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,8 +25,7 @@ log_msg ""
 UPDATE_SUCCESS=true
 UPDATE_OUTPUT=""
 
-# ── Detect Distribution & Run Security Updates ───────────────────────────────
-
+# Detect distro and run security updates
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     DISTRO="${ID:-unknown}"
@@ -45,23 +38,17 @@ fi
 case "$DISTRO" in
     ubuntu|debian)
         log_msg ""
-        log_msg "── Debian/Ubuntu: Running security-only updates ──"
+        log_msg "Running Debian/Ubuntu security-only updates..."
         log_msg ""
 
-        # Method 1: unattended-upgrade (preferred)
         if command -v unattended-upgrade &>/dev/null; then
             log_msg "Using: unattended-upgrade -d"
             UPDATE_OUTPUT=$(sudo unattended-upgrade -d 2>&1) || UPDATE_SUCCESS=false
             echo "$UPDATE_OUTPUT" | tail -20 >> "$LOG_FILE"
-
-        # Method 2: apt-get with security repo only
         else
-            log_msg "unattended-upgrade not found, using apt-get with security sources..."
-
-            # Update package lists
+            log_msg "Using apt-get with security sources..."
             sudo apt-get update -y 2>&1 | tail -3 >> "$LOG_FILE"
 
-            # Install security updates only
             if [[ -f /etc/apt/sources.list ]]; then
                 UPDATE_OUTPUT=$(sudo apt-get upgrade -y \
                     -o Dir::Etc::sourcelist="/etc/apt/sources.list" \
@@ -77,7 +64,7 @@ case "$DISTRO" in
 
     rhel|centos|rocky|alma)
         log_msg ""
-        log_msg "── RHEL/CentOS: Running security-only updates ──"
+        log_msg "Running RHEL/CentOS security-only updates..."
         log_msg ""
 
         if command -v yum &>/dev/null; then
@@ -96,7 +83,7 @@ case "$DISTRO" in
 
     fedora)
         log_msg ""
-        log_msg "── Fedora: Running security-only updates ──"
+        log_msg "Running Fedora security-only updates..."
         log_msg ""
         if command -v dnf &>/dev/null; then
             log_msg "Using: dnf update --security"
@@ -117,14 +104,12 @@ esac
 
 log_msg ""
 
-# ── Result & Alerting ─────────────────────────────────────────────────────────
-
+# Result and alerting
 if [[ "$UPDATE_SUCCESS" == "true" ]]; then
     log_msg "RESULT: ✓ Security patches applied successfully."
 else
     log_msg "RESULT: ✗ Security patch update FAILED or partially failed."
 
-    # Send alert on failure
     if [[ "${EMAIL_ENABLED}" == "true" ]] && command -v mail &>/dev/null; then
         SUBJECT="${EMAIL_SUBJECT_PREFIX} Security Update FAILED on $(hostname)"
         echo "Security-only update on $(hostname) failed at ${TIMESTAMP}. Check ${LOG_FILE} for details." | \
@@ -134,7 +119,6 @@ else
     fi
 fi
 
-# ── Kernel Version Check (ensure no major version upgrade) ────────────────────
 log_msg ""
 log_msg "Current kernel: $(uname -r)"
 log_msg ""

@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
-###############################################################################
-#  monitor.sh — Real-Time System Monitoring Dashboard
-#
-#  Displays a color-coded terminal dashboard with live system metrics.
-#  Refreshes every REFRESH_INTERVAL seconds (from config.conf).
-#  Logs health history at HEALTH_LOG_INTERVAL intervals.
-#  Triggers alerts.sh when thresholds are breached.
-###############################################################################
+# monitor.sh — Real-time system monitoring dashboard
 set -uo pipefail
 
-# ── Resolve project root & load config ───────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/config.conf"
 
 mkdir -p "${SCRIPT_DIR}/${LOG_DIR}" "${SCRIPT_DIR}/${REPORT_DIR}"
 
-# ── ANSI Color Codes ─────────────────────────────────────────────────────────
+# ANSI colors
 RST="\033[0m"
 BOLD="\033[1m"
 RED="\033[1;31m"
@@ -29,9 +21,7 @@ BG_RED="\033[41m"
 BG_YELLOW="\033[43m"
 BG_GREEN="\033[42m"
 
-# ── Utility Functions ─────────────────────────────────────────────────────────
-
-# Return color based on value vs warning/critical thresholds
+# Return color based on threshold comparison
 color_by_threshold() {
     local val="$1" warn="$2" crit="$3"
     if (( $(echo "$val >= $crit" | bc -l 2>/dev/null || echo 0) )); then
@@ -43,7 +33,7 @@ color_by_threshold() {
     fi
 }
 
-# Return status label
+# Return status label (CRITICAL/WARNING/NORMAL)
 status_label() {
     local val="$1" warn="$2" crit="$3"
     if (( $(echo "$val >= $crit" | bc -l 2>/dev/null || echo 0) )); then
@@ -55,7 +45,7 @@ status_label() {
     fi
 }
 
-# Draw a horizontal bar  ████░░░░░░
+# Draw a horizontal bar ████░░░░░░
 draw_bar() {
     local pct="$1" width=30
     local filled=$(( pct * width / 100 ))
@@ -76,17 +66,14 @@ header() {
     echo -e "${BOLD}${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════╗"
     echo "║       ⚙  LINUX SYSTEM MONITORING DASHBOARD  ⚙                        ║"
-    echo "║       $(date '+%Y-%m-%d %H:%M:%S')                                   ║"
+    echo "║       $(date '+%Y-%m-%d %H:%M:%S')                                         ║"
     echo "╚══════════════════════════════════════════════════════════════════════╝"
     echo -e "${RST}"
 }
 
-# ── Metric Collectors ─────────────────────────────────────────────────────────
-
+# CPU usage (normalized to 0-100% on macOS)
 get_cpu_usage() {
-    # Use top in batch mode (Linux) or ps fallback
     if [[ -f /proc/stat ]]; then
-        # Read two snapshots 1 second apart
         local cpu1 cpu2
         cpu1=($(head -1 /proc/stat))
         sleep 1
@@ -103,18 +90,17 @@ get_cpu_usage() {
             echo "0.0"
         fi
     else
-        # macOS / fallback — normalize by number of cores so value is 0-100%
         local ncpu
         ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
         ps -A -o %cpu | awk -v cores="$ncpu" '{s+=$1} END {printf "%.1f", s/cores}'
     fi
 }
 
+# Memory usage — returns pct|used_mb|total_mb
 get_memory_usage() {
     if command -v free &>/dev/null; then
         free | awk '/Mem:/ {printf "%.1f|%d|%d", $3/$2*100, $3/1024, $2/1024}'
     elif command -v vm_stat &>/dev/null; then
-        # macOS — parse vm_stat carefully
         local vmstat_out
         vmstat_out=$(vm_stat 2>/dev/null)
         local page_size
@@ -142,19 +128,18 @@ get_memory_usage() {
     fi
 }
 
+# Disk usage for root partition
 get_disk_usage() {
-    # Column 5 is 'Use%' on Linux and 'Capacity' on macOS
     df -h / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); printf "%s|%s|%s|%s", $5, $3, $2, $4}'
 }
 
+# Disk I/O latency
 get_disk_io() {
     if [[ -f /proc/diskstats ]]; then
-        # Linux: use iostat with Linux flags
         local val
         val=$(iostat -d 1 2 2>/dev/null | awk '/^[a-z]/ && NR>3 {print $NF; exit}')
         echo "${val:-N/A}"
     elif command -v iostat &>/dev/null; then
-        # macOS: iostat -d -c 2 -w 1 gives two samples, use the second
         local val
         val=$(iostat -d -c 2 -w 1 2>/dev/null | awk 'NR==4 {print $1}')
         echo "${val:-0} KB/t"
@@ -163,9 +148,9 @@ get_disk_io() {
     fi
 }
 
+# Network speed — returns dl_kb|ul_kb|interface
 get_network_speed() {
     if [[ -d /sys/class/net ]]; then
-        # Linux: read byte counters directly
         local iface
         iface=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}' || echo "eth0")
         local rx1 tx1 rx2 tx2
@@ -178,7 +163,6 @@ get_network_speed() {
         local ul=$(( (tx2 - tx1) / 1024 ))
         echo "${dl}|${ul}|${iface}"
     else
-        # macOS: take two netstat -ib snapshots 1 second apart
         local iface="en0"
         local rx1 tx1 rx2 tx2
         rx1=$(netstat -ib 2>/dev/null | awk '/^en0[[:space:]]/ && $7 ~ /^[0-9]+$/ {print $7; exit}')
@@ -190,13 +174,13 @@ get_network_speed() {
         rx2=${rx2:-0}; tx2=${tx2:-0}
         local dl=$(( (rx2 - rx1) / 1024 ))
         local ul=$(( (tx2 - tx1) / 1024 ))
-        # Ensure non-negative (counters may wrap)
         (( dl < 0 )) && dl=0
         (( ul < 0 )) && ul=0
         echo "${dl}|${ul}|${iface}"
     fi
 }
 
+# Active network connections count
 get_network_connections() {
     if command -v ss &>/dev/null; then
         ss -tun 2>/dev/null | tail -n +2 | wc -l | tr -d ' '
@@ -207,15 +191,16 @@ get_network_connections() {
     fi
 }
 
+# System uptime string
 get_uptime_info() {
     uptime | sed 's/.*up //' | sed 's/,.*load.*//' | xargs
 }
 
+# Load average — returns l1|l5|l15
 get_load_average() {
     if [[ -f /proc/loadavg ]]; then
         awk '{print $1"|"$2"|"$3}' /proc/loadavg
     else
-        # macOS: "load averages: 1.23 2.34 3.45" or "load average: 1.23, 2.34, 3.45"
         local raw
         raw=$(uptime 2>/dev/null | sed 's/.*load average[s]*: *//' | tr -d ',')
         local l1 l5 l15
@@ -226,6 +211,7 @@ get_load_average() {
     fi
 }
 
+# System error count (last 5 min)
 get_error_rate() {
     if command -v journalctl &>/dev/null; then
         local count
@@ -240,17 +226,16 @@ get_error_rate() {
     fi
 }
 
+# Top 5 processes by CPU
 get_top_processes() {
-    # Output: USER PID %CPU %MEM COMMAND (short name only)
     if ps -eo user,pid,pcpu,pmem,comm --sort=-pcpu &>/dev/null 2>&1; then
-        # Linux: supports --sort
         ps -eo user=USER,pid=PID,pcpu=%CPU,pmem=%MEM,comm=COMMAND --sort=-pcpu 2>/dev/null | head -6 | tail -5
     else
-        # macOS: use -r for CPU sorting, -o for custom columns
         ps -eo user=USER,pid=PID,pcpu=%CPU,pmem=%MEM,comm=COMMAND -r 2>/dev/null | head -6 | tail -5
     fi
 }
 
+# TCP retransmission count
 get_tcp_retransmissions() {
     if [[ -f /proc/net/snmp ]]; then
         local val
@@ -265,16 +250,13 @@ get_tcp_retransmissions() {
     fi
 }
 
-# ── Alert Trigger ─────────────────────────────────────────────────────────────
-
+# Run alerts.sh in background
 trigger_alerts() {
     local cpu="$1" mem="$2" disk="$3" load="$4"
-    # Run alerts.sh in background so it doesn't block the dashboard
     bash "${SCRIPT_DIR}/alerts.sh" "$cpu" "$mem" "$disk" "$load" &
 }
 
-# ── Health History Logger ─────────────────────────────────────────────────────
-
+# Log health snapshot at configured interval
 LAST_HEALTH_LOG=0
 
 log_health() {
@@ -290,12 +272,11 @@ log_health() {
     fi
 }
 
-# ── Dashboard Renderer ────────────────────────────────────────────────────────
-
+# Main dashboard renderer
 render_dashboard() {
     header
 
-    # ── CPU ────────────────────────────────────────────────────────────────
+    # CPU
     local cpu
     cpu=$(get_cpu_usage)
     local cpu_int=${cpu%.*}
@@ -307,7 +288,7 @@ render_dashboard() {
     status_label "$cpu_int" "$CPU_WARN" "$CPU_CRIT"
     echo -e "${RST}\n"
 
-    # ── Memory ─────────────────────────────────────────────────────────────
+    # Memory
     local mem_info mem_pct mem_used mem_total
     mem_info=$(get_memory_usage)
     mem_pct=$(echo "$mem_info"  | cut -d'|' -f1)
@@ -323,7 +304,7 @@ render_dashboard() {
     echo -e "${RST}"
     echo -e "  ${CYAN}Used: ${mem_used} MB / Total: ${mem_total} MB${RST}\n"
 
-    # ── Disk ───────────────────────────────────────────────────────────────
+    # Disk
     local disk_info disk_pct disk_used disk_size disk_avail
     disk_info=$(get_disk_usage)
     disk_pct=$(echo "$disk_info"  | cut -d'|' -f1)
@@ -340,14 +321,14 @@ render_dashboard() {
     echo -e "${RST}"
     echo -e "  ${CYAN}Used: ${disk_used} / Size: ${disk_size} / Avail: ${disk_avail}${RST}\n"
 
-    # ── Disk I/O ───────────────────────────────────────────────────────────
+    # Disk I/O
     local io_latency
     io_latency=$(get_disk_io)
     echo -e " ${BOLD}${WHITE}DISK I/O LATENCY${RST}"
     divider
     echo -e "  ${MAGENTA}Avg I/O: ${io_latency}${RST}\n"
 
-    # ── Network Speed ──────────────────────────────────────────────────────
+    # Network speed
     local net_info net_dl net_ul net_if
     net_info=$(get_network_speed)
     net_dl=$(echo "$net_info" | cut -d'|' -f1)
@@ -357,14 +338,14 @@ render_dashboard() {
     divider
     echo -e "  ${GREEN}↓ Download: ${net_dl} KB/s    ↑ Upload: ${net_ul} KB/s${RST}\n"
 
-    # ── Network Connections ────────────────────────────────────────────────
+    # Network connections
     local net_conn
     net_conn=$(get_network_connections)
     echo -e " ${BOLD}${WHITE}NETWORK CONNECTIONS${RST}"
     divider
     echo -e "  ${CYAN}Active connections: ${net_conn}${RST}\n"
 
-    # ── Uptime & Load ──────────────────────────────────────────────────────
+    # Uptime & load
     local uptime_str load_info load1 load5 load15
     uptime_str=$(get_uptime_info)
     load_info=$(get_load_average)
@@ -381,26 +362,25 @@ render_dashboard() {
     status_label "$load_int" "$LOAD_WARN" "$LOAD_CRIT"
     echo -e "${RST}\n"
 
-    # ── Error Rate ─────────────────────────────────────────────────────────
+    # Error rate
     local err_rate
     err_rate=$(get_error_rate)
     echo -e " ${BOLD}${WHITE}SYSTEM ERROR RATE (last 5 min)${RST}"
     divider
     echo -e "  ${MAGENTA}Errors: ${err_rate}${RST}\n"
 
-    # ── TCP Retransmissions ────────────────────────────────────────────────
+    # TCP retransmissions
     local tcp_retrans
     tcp_retrans=$(get_tcp_retransmissions)
     echo -e " ${BOLD}${WHITE}TCP RETRANSMISSIONS${RST}"
     divider
     echo -e "  ${MAGENTA}Total retransmits: ${tcp_retrans}${RST}\n"
 
-    # ── Top 5 Processes ────────────────────────────────────────────────────
+    # Top 5 processes
     echo -e " ${BOLD}${WHITE}TOP 5 PROCESSES (by CPU)${RST}"
     divider
     printf "  ${CYAN}%-12s %-7s %-6s %-6s %-30s${RST}\n" "USER" "PID" "%CPU" "%MEM" "COMMAND"
     get_top_processes | while read -r p_user p_pid p_cpu p_mem p_cmd; do
-        # Truncate command name to 30 chars for readability
         local short_cmd
         short_cmd=$(basename "$p_cmd" 2>/dev/null || echo "$p_cmd")
         short_cmd="${short_cmd:0:30}"
@@ -408,18 +388,16 @@ render_dashboard() {
     done
     echo ""
 
-    # ── Footer ─────────────────────────────────────────────────────────────
+    # Footer
     divider
     echo -e " ${BOLD}${CYAN}Refreshing every ${REFRESH_INTERVAL}s  |  Press Ctrl+C to exit${RST}"
     echo ""
 
-    # ── Trigger alerts & log health ────────────────────────────────────────
     trigger_alerts "$cpu_int" "$mem_int" "$disk_int" "$load1"
     log_health "$cpu_int" "$mem_int" "$disk_int" "$load1"
 }
 
-# ── Main Loop ─────────────────────────────────────────────────────────────────
-
+# Main loop
 trap "echo -e '\n${GREEN}Dashboard stopped.${RST}'; exit 0" SIGINT SIGTERM
 
 echo -e "${CYAN}Starting System Monitor Dashboard...${RST}"

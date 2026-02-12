@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
-###############################################################################
-#  log_rotation.sh — Log Rotation & Cleanup System
-#
-#  - Deletes logs older than LOG_RETENTION_DAYS
-#  - Compresses logs larger than LOG_MAX_SIZE_MB
-#  - Maintains MAX_ROTATED_FILES per log family
-###############################################################################
+# log_rotation.sh — Delete old logs, compress large ones, prune excess rotated files
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +13,7 @@ echo "  LOG ROTATION — ${TIMESTAMP}"
 echo "==============================================================================="
 echo ""
 
-# ── 1. Delete logs older than retention period ────────────────────────────────
+# 1. Delete logs older than retention period
 echo "[*] Deleting log files older than ${LOG_RETENTION_DAYS} days..."
 deleted_count=0
 while IFS= read -r -d '' file; do
@@ -30,7 +24,7 @@ done < <(find "$TARGET_DIR" -type f \( -name "*.log" -o -name "*.log.gz" \) -mti
 echo "    Deleted ${deleted_count} file(s)."
 echo ""
 
-# ── 2. Compress large log files ───────────────────────────────────────────────
+# 2. Compress large log files
 echo "[*] Compressing log files larger than ${LOG_MAX_SIZE_MB} MB..."
 compressed_count=0
 max_bytes=$(( LOG_MAX_SIZE_MB * 1024 * 1024 ))
@@ -46,11 +40,10 @@ done < <(find "$TARGET_DIR" -type f -name "*.log" -print0 2>/dev/null)
 echo "    Compressed ${compressed_count} file(s)."
 echo ""
 
-# ── 3. Maintain max rotated files ─────────────────────────────────────────────
+# 3. Enforce max rotated files per log family
 echo "[*] Enforcing max ${MAX_ROTATED_FILES} rotated files per log family..."
 pruned_count=0
 
-# Group compressed files by base name pattern (e.g., health_history, alerts)
 for base_pattern in health_history alerts self_heal security_update; do
     matching_files=()
     while IFS= read -r -d '' f; do
@@ -71,7 +64,7 @@ done
 echo "    Pruned ${pruned_count} excess rotated file(s)."
 echo ""
 
-# ── Also clean up old reports ─────────────────────────────────────────────────
+# 4. Clean old reports
 REPORT_TARGET="${SCRIPT_DIR}/${REPORT_DIR}"
 echo "[*] Cleaning old reports (older than ${LOG_RETENTION_DAYS} days)..."
 old_reports=0

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-###############################################################################
-#  alerts.sh — Threshold-Based Alerting System
-#
-#  Usage: bash alerts.sh <cpu%> <mem%> <disk%> <load>
-#  Compares metrics against config thresholds, logs breaches, sends email.
-###############################################################################
+# alerts.sh — Threshold-based alerting (usage: bash alerts.sh <cpu%> <mem%> <disk%> <load>)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +10,6 @@ mkdir -p "${SCRIPT_DIR}/${LOG_DIR}"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 ALERT_FILE="${SCRIPT_DIR}/${ALERT_LOG}"
 
-# ── Input ─────────────────────────────────────────────────────────────────────
 CPU="${1:-0}"
 MEM="${2:-0}"
 DISK="${3:-0}"
@@ -23,8 +17,7 @@ LOAD="${4:-0}"
 
 ALERTS_TRIGGERED=()
 
-# ── Compare Metrics ───────────────────────────────────────────────────────────
-
+# Compare metric against warn/crit thresholds and log breaches
 check_threshold() {
     local metric_name="$1" value="$2" warn="$3" crit="$4"
     local level=""
@@ -47,8 +40,7 @@ check_threshold "MEMORY" "$MEM"  "$MEMORY_WARN" "$MEMORY_CRIT"
 check_threshold "DISK"   "$DISK" "$DISK_WARN"   "$DISK_CRIT"
 check_threshold "LOAD"   "$LOAD" "$LOAD_WARN"   "$LOAD_CRIT"
 
-# ── Send Email (if enabled and alerts exist) ──────────────────────────────────
-
+# Send email alert if enabled and alerts exist
 send_email_alert() {
     if [[ "${EMAIL_ENABLED}" != "true" ]]; then
         return
